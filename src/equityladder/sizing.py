@@ -17,6 +17,10 @@ Two ways to size each side, both in whole shares rounded down:
     of the room left under ``max_investment`` at the buy price. Selling into a rally
     frees room, so a later dip buys more.
 
+A ``Skew`` replaces both quantities with fixed share counts while the holding is on
+the far side of a target: sell 2 / buy 1 above it works a position down, buy 2 /
+sell 1 below it builds one, and the skew ends once the target is reached.
+
 Both sides are then clamped: a buy to the investment ceiling and to the cash the
 caller says is free for it, a sell to the shares not already reserved by another
 working order. A side can come out at zero shares; that is an answer, not an error.
@@ -40,13 +44,34 @@ class SizingMode(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class Skew:
+    """Fixed whole-share quantities toward a target holding."""
+    buy: int
+    sell: int
+    target: Decimal
+
+    def __post_init__(self):
+        if (type(self.buy) is not int or type(self.sell) is not int
+                or self.buy < 0 or self.sell < 0 or not (self.buy or self.sell)):
+            raise LadderError('a skew buys and sells whole shares, at least one of them')
+        nonnegative(self.target)
+
+    def active(self, owned: Decimal) -> bool:
+        """Sell-heavy while above the target, buy-heavy while below, even always."""
+        lean = self.buy - self.sell
+        return lean == 0 or (lean < 0 and owned > self.target) or (lean > 0 and owned < self.target)
+
+
+@dataclass(frozen=True, slots=True)
 class LadderSettings:
-    """One ladder's parameters. Every field is a policy choice; none has a default."""
+    """One ladder's parameters. Every field is a policy choice; none has a default,
+    except ``skew``, which is off unless given."""
     step: Decimal               # fraction of the anchor between anchor and each order
     mode: SizingMode
     trade_fraction: Decimal     # position mode: fraction of held shares per side
     headroom_divisor: Decimal   # headroom mode: X in "1/X of the shares or the room"
     max_investment: Decimal     # ceiling on the holding's value at the buy price
+    skew: Skew | None = None
 
     def __post_init__(self):
         step, fraction = positive(self.step), positive(self.trade_fraction)
@@ -71,6 +96,7 @@ class Pair:
     anchor: Decimal
     owned_shares: Decimal
     mode: SizingMode
+    skewed: bool = False        # the skew's quantities were used for this pair
 
 
 def propose_pair(settings: LadderSettings, *, owned, anchor, tiers: Iterable[TickTier],
@@ -90,9 +116,12 @@ def propose_pair(settings: LadderSettings, *, owned, anchor, tiers: Iterable[Tic
     else:
         sell_quantity = whole(quantity / settings.headroom_divisor)
         buy_quantity = whole(room / (settings.headroom_divisor * buy))
+    skewed = settings.skew is not None and settings.skew.active(quantity)
+    if skewed:
+        buy_quantity, sell_quantity = settings.skew.buy, settings.skew.sell
     buy_quantity = min(buy_quantity, whole(room / buy),
                        whole(max(_ZERO, finite(free_cash)) / buy))
     sell_quantity = min(sell_quantity,
                         whole(max(_ZERO, quantity - nonnegative(reserved_shares))))
     return Pair(Order(buy, buy_quantity), Order(sell, sell_quantity), anchor, quantity,
-                settings.mode)
+                settings.mode, skewed)

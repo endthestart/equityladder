@@ -9,6 +9,7 @@ from equityladder import (
     LadderSettings,
     Order,
     SizingMode,
+    Skew,
     TickTier,
     finite,
     positive,
@@ -82,3 +83,24 @@ def test_numbers_are_strict_but_honest():
     assert finite('-3.5') == D('-3.5') and whole('3.99') == 3
     with pytest.raises(LadderError):
         whole('-1')
+
+
+def test_a_skew_works_toward_its_target_and_every_bound_still_holds():
+    """Sell 2 / buy 1 above a 100-share target; normal sizing once it is reached."""
+    skew = Skew(buy=1, sell=2, target=D('100'))
+    above = propose_pair(settings(skew=skew), owned='150.5', anchor='50', tiers=TIERS,
+                         free_cash='1000')
+    assert (above.buy.quantity, above.sell.quantity, above.skewed) == (1, 2, True)
+    reached = propose_pair(settings(skew=skew), owned='100', anchor='50', tiers=TIERS,
+                           free_cash='1000')
+    assert (reached.sell.quantity, reached.skewed) == (1, False)
+    broke = propose_pair(settings(skew=skew), owned='150.5', anchor='50', tiers=TIERS,
+                         free_cash='0', reserved_shares='149.5')
+    assert (broke.buy.quantity, broke.sell.quantity) == (0, 1)
+    assert Skew(buy=2, sell=1, target=D('200')).active(D('150'))
+
+
+@pytest.mark.parametrize('buy,sell', [(0, 0), (-1, 2), (1.5, 2)])
+def test_a_skew_must_trade_whole_shares(buy, sell):
+    with pytest.raises(LadderError):
+        Skew(buy=buy, sell=sell, target=D('100'))

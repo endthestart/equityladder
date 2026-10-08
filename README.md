@@ -54,6 +54,12 @@ another working order. The buy is never collateral for the sell.
 | `position` | `trade_fraction` of shares held | the same number of shares | never sells the last share, never all-in |
 | `headroom` | `1/X` of shares held | `1/X` of the room left under `max_investment` | selling into a rally frees room, so a later dip buys more |
 
+A `Skew(buy, sell, target)` replaces both quantities with fixed share counts while
+the holding is on the far side of a target: `Skew(buy=1, sell=2, target=100)` works
+a larger position down toward 100 shares, selling into strength; `Skew(buy=2,
+sell=1, target=200)` builds toward 200. It ends once the target is reached, and
+every clamp above still applies.
+
 ## The anchor
 
 `next_anchor(executions)` decides where the next pair centres once one finishes:

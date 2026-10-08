@@ -1,6 +1,6 @@
 [project]
 name = "equityladder"
-version = "0.1.0"
+version = "0.2.0"
 description = "Dependency-free math for a price-step equity ladder: whole-share buy/sell pairs around an execution anchor, average-cost accounting that separates adoption from profit."
 readme = "README.md"
 requires-python = ">=3.12"
